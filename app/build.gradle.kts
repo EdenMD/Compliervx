@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "id.frogobox.compliervx"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -30,14 +30,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlin {
-        jvmToolchain(17) // Use JVM 17 for Kotlin compilation
-    }
-
     // New compilerOptions DSL for Kotlin
     kotlin {
+        jvmToolchain(17) // Use JVM 17 for Kotlin compilation
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget.JVM_17)
+            jvmTarget.set("17") // Correct way to set JVM target
         }
     }
 
