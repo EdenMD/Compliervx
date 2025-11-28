@@ -10,18 +10,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <!-- TODO: Add Toolbar later for address bar and menu -->
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary"
+            app:titleTextColor="?attr/colorOnPrimary" />
 
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tab_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:tabMode="scrollable"
+            android:background="?attr/colorPrimary"
+            app:tabGravity="fill"
             app:tabIndicatorColor="?attr/colorOnPrimary"
-            app:tabTextColor="?attr/colorOnPrimaryContainer"
-            app:tabSelectedTextColor="?attr/colorPrimary"
-            app:tabBackground="@attr/colorPrimary"
-            />
+            app:tabMode="scrollable"
+            app:tabSelectedTextColor="?attr/colorOnPrimary"
+            app:tabTextColor="?attr/colorOnPrimaryContainer" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -30,7 +35,5 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
-
-    <!-- TODO: Add FloatingActionButton for "Anesha Button" in a later phase -->
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
