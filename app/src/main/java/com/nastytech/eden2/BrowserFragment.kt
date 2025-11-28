@@ -7,48 +7,60 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
-import android.speech.tts.TextToSpeech // Added for TTS
-import android.util.Base64 // Added for Blob Downloads
-import android.util.Log // Added for logging Ad Blocker and TTS
+import android.speech.tts.TextToSpeech
+import android.util.Base64
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.JavascriptInterface // Added for Blob Downloads
+import android.view.inputmethod.EditorInfo
+import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest // Added for Ad Blocker
-import android.webkit.WebResourceResponse // Added for Ad Blocker
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.nastytech.eden2.db.AppDatabase
 import com.nastytech.eden2.db.HistoryItem
-import com.nastytech.eden2.db.HistoryDao // Import HistoryDao
-import kotlinx.coroutines.Dispatchers // Added for Blob Downloads
+import com.nastytech.eden2.db.HistoryDao
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext // Added for Blob Downloads
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.net.URLConnection // For guessing MIME type in blob download
-import java.util.Locale // Added for TTS
+import java.util.Locale
 
 class BrowserFragment : Fragment() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
-    private lateinit var textToSpeech: TextToSpeech // Added for TTS
+    private lateinit var textToSpeech: TextToSpeech
+
+    private var findInPageLayout: LinearLayout? = null
+    private var findInPageEditText: EditText? = null
+    private var findInPageNextButton: ImageButton? = null
+    private var findInPagePrevButton: ImageButton? = null
+    private var findInPageCloseButton: ImageButton? = null
 
     private val STORAGE_PERMISSION_CODE = 1
     private var initialUrl: String = "about:blank"
-    private lateinit var historyDao: HistoryDao // Initialized in onCreate
+    private lateinit var historyDao: HistoryDao
 
-    // Ad blocking list (a simple example)
+    private var originalUserAgent: String? = null
+
     private val AD_HOSTS = listOf(
         "adservice.google.com",
         "doubleclick.net",
@@ -56,7 +68,7 @@ class BrowserFragment : Fragment() {
         "googlesyndication.com",
         "adnxs.com",
         "facebook.com/ads",
-        "app-measurement.com" // Basic analytics/ad tracking
+        "app-measurement.com"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,10 +91,28 @@ class BrowserFragment : Fragment() {
         webView = view.findViewById(R.id.webview_fragment)
         progressBar = view.findViewById(R.id.progress_bar_fragment)
 
-        // --- Initialize Text-to-Speech ---
+        findInPageLayout = view.findViewById(R.id.find_in_page_layout)
+        findInPageEditText = view.findViewById(R.id.find_in_page_edit_text)
+        findInPageNextButton = view.findViewById(R.id.find_in_page_next_button)
+        findInPagePrevButton = view.findViewById(R.id.find_in_page_prev_button)
+        findInPageCloseButton = view.findViewById(R.id.find_in_page_close_button)
+
+        findInPageNextButton?.setOnClickListener { findNext(true) }
+        findInPagePrevButton?.setOnClickListener { findNext(false) }
+        findInPageCloseButton?.setOnClickListener { hideFindInPage() }
+
+        findInPageEditText?.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                findNext(true)
+                true
+            } else {
+                false
+            }
+        }
+
         textToSpeech = TextToSpeech(requireContext()) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech.setLanguage(Locale.US) // Set default language
+                val result = textToSpeech.setLanguage(Locale.US)
                 if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                     Log.e("TTS", "Language not supported or missing data")
                 } else {
@@ -93,7 +123,6 @@ class BrowserFragment : Fragment() {
             }
         }
 
-        // --- WebView Settings ---
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
@@ -112,16 +141,15 @@ class BrowserFragment : Fragment() {
                     val currentPosition = mainActivity.viewPager.currentItem
                     tabAdapter?.notifyItemChanged(currentPosition)
                 }
+                (activity as? MainActivity)?.supportActionBar?.title = view?.title ?: "EdenX Browser"
+                activity?.invalidateOptionsMenu()
             }
 
-            // --- Ad Blocker Implementation (shouldInterceptRequest) ---
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val url = request?.url?.toString()?.toLowerCase(Locale.ROOT)
                 if (url != null) {
-                    // Check if the URL contains any of the ad hosts
                     if (AD_HOSTS.any { url.contains(it) }) {
                         Log.d("AdBlocker", "Blocked ad request: ${request.url}")
-                        // Return an empty/null response to block the ad
                         return WebResourceResponse(
                             "text/plain",
                             "utf-8",
@@ -139,7 +167,8 @@ class BrowserFragment : Fragment() {
         webView.settings.builtInZoomControls = true
         webView.settings.displayZoomControls = false
 
-        // --- Progress Bar Handler ---
+        originalUserAgent = webView.settings.userAgentString
+
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress < 100) {
@@ -156,16 +185,14 @@ class BrowserFragment : Fragment() {
                     val currentPosition = mainActivity.viewPager.currentItem
                     tabAdapter?.notifyItemChanged(currentPosition)
                 }
+                (activity as? MainActivity)?.supportActionBar?.title = title ?: "EdenX Browser"
             }
         }
 
-        // --- Download Handler (Enhanced for Blob Downloads) ---
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             if (url.startsWith("blob:")) {
-                // Handle Blob downloads using JavaScript injection
                 handleBlobDownload(url, contentDisposition, mimetype)
             } else {
-                // Handle standard file downloads
                 if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
                     downloadFile(url, userAgent, contentDisposition, mimetype)
                 } else {
@@ -174,16 +201,15 @@ class BrowserFragment : Fragment() {
             }
         }
 
-        // --- Add JavaScript Interface for Blob Downloads ---
         webView.addJavascriptInterface(JavaScriptBlobHandler(), "AndroidBlobHandler")
 
-        // --- Load Initial URL ---
         webView.loadUrl(initialUrl)
 
-        // --- Handle back press within the Fragment's WebView ---
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
+                if (findInPageLayout?.visibility == View.VISIBLE) {
+                    hideFindInPage()
+                } else if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
                     isEnabled = false
@@ -193,9 +219,72 @@ class BrowserFragment : Fragment() {
         })
     }
 
-    /**
-     * Handles the file download process using Android's system DownloadManager.
-     */
+    fun loadUrl(url: String) {
+        if (::webView.isInitialized) {
+            webView.loadUrl(url)
+        } else {
+            initialUrl = url
+        }
+    }
+
+    fun getCurrentUrl(): String? {
+        return if (::webView.isInitialized) webView.url else null
+    }
+
+    fun getWebView(): WebView? {
+        return if (::webView.isInitialized) webView else null
+    }
+
+    fun toggleDesktopMode() {
+        val settings = webView.settings
+        if (settings.userAgentString == originalUserAgent) {
+            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.88 Safari/537.36"
+            Toast.makeText(requireContext(), "Desktop mode enabled", Toast.LENGTH_SHORT).show()
+        } else {
+            settings.userAgentString = originalUserAgent
+            Toast.makeText(requireContext(), "Desktop mode disabled", Toast.LENGTH_SHORT).show()
+        }
+        webView.reload()
+    }
+
+    fun showFindInPage() {
+        findInPageLayout?.visibility = View.VISIBLE
+        findInPageEditText?.requestFocus()
+    }
+
+    private fun hideFindInPage() {
+        webView.clearMatches()
+        findInPageLayout?.visibility = View.GONE
+        findInPageEditText?.text?.clear()
+    }
+
+    private fun findNext(forward: Boolean) {
+        val searchText = findInPageEditText?.text.toString()
+        if (searchText.isNotBlank()) {
+            webView.findAllAsync(searchText)
+            webView.findNext(forward)
+        }
+    }
+
+    fun speakText(text: String) {
+        if (::textToSpeech.isInitialized) {
+            textToSpeech.stop()
+            if (text.isNotBlank()) {
+                val result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                if (result == TextToSpeech.ERROR) {
+                    Log.e("TTS", "Error speaking text.")
+                    Toast.makeText(requireContext(), "Error speaking text.", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(requireContext(), "Reading aloud...", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(requireContext(), "No text to speak.", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(requireContext(), "Text-to-Speech engine not ready.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun downloadFile(url: String, userAgent: String, contentDisposition: String, mimetype: String) {
         try {
             val request = DownloadManager.Request(Uri.parse(url))
@@ -215,9 +304,6 @@ class BrowserFragment : Fragment() {
         }
     }
 
-    /**
-     * Injects JavaScript to handle blob URL downloads.
-     */
     private fun handleBlobDownload(blobUrl: String, contentDisposition: String, mimeType: String) {
         val fileName = URLUtil.guessFileName(blobUrl, contentDisposition, mimeType)
         val js = """
@@ -241,9 +327,6 @@ class BrowserFragment : Fragment() {
         Toast.makeText(requireContext(), "Processing blob download: $fileName", Toast.LENGTH_SHORT).show()
     }
 
-    /**
-     * JavaScript Interface for receiving blob data (Base64 encoded) from the WebView.
-     */
     private inner class JavaScriptBlobHandler {
         @JavascriptInterface
         fun receiveBase64Blob(base64Data: String, mimeType: String, filename: String) {
@@ -251,7 +334,7 @@ class BrowserFragment : Fragment() {
                 try {
                     val bytes = Base64.decode(base64Data, Base64.DEFAULT)
                     val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    downloadsDir.mkdirs() // Ensure directory exists
+                    downloadsDir.mkdirs()
 
                     val file = File(downloadsDir, filename)
                     FileOutputStream(file).use { it.write(bytes) }
@@ -269,9 +352,6 @@ class BrowserFragment : Fragment() {
         }
     }
 
-    /**
-     * This is called after the user responds to the permission request dialog.
-     */
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == STORAGE_PERMISSION_CODE) {
@@ -283,63 +363,23 @@ class BrowserFragment : Fragment() {
         }
     }
 
-    // Public method to load a URL into this fragment's WebView
-    fun loadUrl(url: String) {
-        if (::webView.isInitialized) {
-            webView.loadUrl(url)
-        } else {
-            initialUrl = url
-        }
-    }
-
-    // Public method to get the current URL of the WebView
-    fun getCurrentUrl(): String? {
-        return if (::webView.isInitialized) webView.url else null
-    }
-
-    // Public method to get the WebView instance
-    fun getWebView(): WebView? {
-        return if (::webView.isInitialized) webView else null
-    }
-
-    // Public method to speak text (can be triggered from MainActivity/menu later)
-    fun speakText(text: String) {
-        if (::textToSpeech.isInitialized && textToSpeech.isSpeaking) {
-            textToSpeech.stop()
-        }
-        if (::textToSpeech.isInitialized && text.isNotBlank()) {
-            val result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-            if (result == TextToSpeech.ERROR) {
-                Log.e("TTS", "Error speaking text.")
-                Toast.makeText(requireContext(), "Error speaking text.", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(requireContext(), "Reading aloud...", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(requireContext(), "TTS not ready or no text to speak.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     override fun onPause() {
         super.onPause()
-        webView.onPause() // Pause WebView activity
+        webView.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        webView.onResume() // Resume WebView activity
+        webView.onResume()
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        // It's good practice to destroy the WebView when the fragment's view is destroyed
-        // to prevent memory leaks, especially in a ViewPager scenario.
         webView.destroy()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Release TextToSpeech resources
         if (::textToSpeech.isInitialized) {
             textToSpeech.stop()
             textToSpeech.shutdown()
