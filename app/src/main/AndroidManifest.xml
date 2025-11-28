@@ -4,6 +4,8 @@
 
     <!-- Required for WebView to access the internet -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required to save files with DownloadManager on older APIs -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <application
         android:allowBackup="true"
@@ -15,7 +17,8 @@
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
