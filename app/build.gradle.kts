@@ -4,6 +4,7 @@ import java.util.Date
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("kotlin-kapt") // ADD THIS LINE: Enables Kotlin Annotation Processing for Room
 }
 
 base {
@@ -86,6 +87,11 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.material)
+
+    // Room components (ADD THESE LINES)
+    implementation("androidx.room:room-runtime:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1") // Use 'kapt' for Kotlin annotation processing
+    implementation("androidx.room:room-ktx:2.6.1") // For Kotlin Coroutines support
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
