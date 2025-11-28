@@ -7,11 +7,17 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.speech.tts.TextToSpeech // Added for TTS
+import android.util.Base64 // Added for Blob Downloads
+import android.util.Log // Added for logging Ad Blocker and TTS
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface // Added for Blob Downloads
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest // Added for Ad Blocker
+import android.webkit.WebResourceResponse // Added for Ad Blocker
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ProgressBar
@@ -22,26 +28,42 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.nastytech.eden2.db.AppDatabase
 import com.nastytech.eden2.db.HistoryItem
+import com.nastytech.eden2.db.HistoryDao // Import HistoryDao
+import kotlinx.coroutines.Dispatchers // Added for Blob Downloads
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext // Added for Blob Downloads
+import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.net.URLConnection // For guessing MIME type in blob download
+import java.util.Locale // Added for TTS
 
 class BrowserFragment : Fragment() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
+    private lateinit var textToSpeech: TextToSpeech // Added for TTS
 
     private val STORAGE_PERMISSION_CODE = 1
-
     private var initialUrl: String = "about:blank"
+    private lateinit var historyDao: HistoryDao // Initialized in onCreate
 
-    // Reference to the database DAO
-    private lateinit var historyDao: HistoryDao
+    // Ad blocking list (a simple example)
+    private val AD_HOSTS = listOf(
+        "adservice.google.com",
+        "doubleclick.net",
+        "admob.com",
+        "googlesyndication.com",
+        "adnxs.com",
+        "facebook.com/ads",
+        "app-measurement.com" // Basic analytics/ad tracking
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         arguments?.let {
             initialUrl = it.getString(ARG_URL) ?: "about:blank"
         }
-        // Initialize DAO here
         historyDao = AppDatabase.getDatabase(requireContext()).historyDao()
     }
 
@@ -57,30 +79,58 @@ class BrowserFragment : Fragment() {
         webView = view.findViewById(R.id.webview_fragment)
         progressBar = view.findViewById(R.id.progress_bar_fragment)
 
+        // --- Initialize Text-to-Speech ---
+        textToSpeech = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val result = textToSpeech.setLanguage(Locale.US) // Set default language
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e("TTS", "Language not supported or missing data")
+                } else {
+                    Log.d("TTS", "TextToSpeech initialized successfully")
+                }
+            } else {
+                Log.e("TTS", "TextToSpeech Initialization failed!")
+            }
+        }
+
         // --- WebView Settings ---
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // When a page finishes loading, save it to history
                 if (url != null && view?.title != null && url != "about:blank") {
                     lifecycleScope.launch {
                         val existingItem = historyDao.getHistoryItemByUrl(url)
-                        if (existingItem == null) { // Only add if not already in history (or update timestamp)
+                        if (existingItem == null) {
                             historyDao.insert(HistoryItem(url = url, title = view.title!!))
                         } else {
-                            // Update timestamp if the page is visited again
                             historyDao.insert(existingItem.copy(timestamp = System.currentTimeMillis()))
                         }
                     }
                 }
-                // Update the tab title in MainActivity via its adapter if available
                 (activity as? MainActivity)?.let { mainActivity ->
                     val tabAdapter = mainActivity.viewPager.adapter as? TabAdapter
                     val currentPosition = mainActivity.viewPager.currentItem
-                    tabAdapter?.notifyItemChanged(currentPosition) // Trigger title update in TabLayoutMediator
+                    tabAdapter?.notifyItemChanged(currentPosition)
                 }
             }
-            // Add other overrides as needed, e.g., shouldOverrideUrlLoading for custom handling
+
+            // --- Ad Blocker Implementation (shouldInterceptRequest) ---
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                val url = request?.url?.toString()?.toLowerCase(Locale.ROOT)
+                if (url != null) {
+                    // Check if the URL contains any of the ad hosts
+                    if (AD_HOSTS.any { url.contains(it) }) {
+                        Log.d("AdBlocker", "Blocked ad request: ${request.url}")
+                        // Return an empty/null response to block the ad
+                        return WebResourceResponse(
+                            "text/plain",
+                            "utf-8",
+                            ByteArrayInputStream("".toByteArray())
+                        )
+                    }
+                }
+                return super.shouldInterceptRequest(view, request)
+            }
         }
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -101,23 +151,31 @@ class BrowserFragment : Fragment() {
             }
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                // If the title is received, also notify the main activity to update the tab title
                 (activity as? MainActivity)?.let { mainActivity ->
                     val tabAdapter = mainActivity.viewPager.adapter as? TabAdapter
                     val currentPosition = mainActivity.viewPager.currentItem
-                    tabAdapter?.notifyItemChanged(currentPosition) // This will cause TabLayoutMediator to re-query the title
+                    tabAdapter?.notifyItemChanged(currentPosition)
                 }
             }
         }
 
-        // --- Download Handler ---
+        // --- Download Handler (Enhanced for Blob Downloads) ---
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
-            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-                downloadFile(url, userAgent, contentDisposition, mimetype)
+            if (url.startsWith("blob:")) {
+                // Handle Blob downloads using JavaScript injection
+                handleBlobDownload(url, contentDisposition, mimetype)
             } else {
-                requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_CODE)
+                // Handle standard file downloads
+                if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                    downloadFile(url, userAgent, contentDisposition, mimetype)
+                } else {
+                    requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_CODE)
+                }
             }
         }
+
+        // --- Add JavaScript Interface for Blob Downloads ---
+        webView.addJavascriptInterface(JavaScriptBlobHandler(), "AndroidBlobHandler")
 
         // --- Load Initial URL ---
         webView.loadUrl(initialUrl)
@@ -128,15 +186,16 @@ class BrowserFragment : Fragment() {
                 if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
-                    // If the WebView can't go back, this tab is "done".
-                    // The MainActivity will handle closing the tab or exiting the app.
-                    isEnabled = false // Disable this fragment's callback
-                    requireActivity().onBackPressedDispatcher.onBackPressed() // Let the Activity's callback handle it
+                    isEnabled = false
+                    requireActivity().onBackPressedDispatcher.onBackPressed()
                 }
             }
         })
     }
 
+    /**
+     * Handles the file download process using Android's system DownloadManager.
+     */
     private fun downloadFile(url: String, userAgent: String, contentDisposition: String, mimetype: String) {
         try {
             val request = DownloadManager.Request(Uri.parse(url))
@@ -156,6 +215,63 @@ class BrowserFragment : Fragment() {
         }
     }
 
+    /**
+     * Injects JavaScript to handle blob URL downloads.
+     */
+    private fun handleBlobDownload(blobUrl: String, contentDisposition: String, mimeType: String) {
+        val fileName = URLUtil.guessFileName(blobUrl, contentDisposition, mimeType)
+        val js = """
+            (function() {
+                fetch('$blobUrl')
+                    .then(response => response.blob())
+                    .then(blob => {
+                        const reader = new FileReader();
+                        reader.onloadend = function() {
+                            const base64data = reader.result.split(',')[1];
+                            const actualMimeType = blob.type || '$mimeType';
+                            const actualFilename = '$fileName';
+                            AndroidBlobHandler.receiveBase64Blob(base64data, actualMimeType, actualFilename);
+                        };
+                        reader.readAsDataURL(blob);
+                    })
+                    .catch(e => console.error('Blob fetch error', e));
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
+        Toast.makeText(requireContext(), "Processing blob download: $fileName", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * JavaScript Interface for receiving blob data (Base64 encoded) from the WebView.
+     */
+    private inner class JavaScriptBlobHandler {
+        @JavascriptInterface
+        fun receiveBase64Blob(base64Data: String, mimeType: String, filename: String) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    downloadsDir.mkdirs() // Ensure directory exists
+
+                    val file = File(downloadsDir, filename)
+                    FileOutputStream(file).use { it.write(bytes) }
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(requireContext(), "Blob downloaded: $filename", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(requireContext(), "Error downloading blob: ${e.message}", Toast.LENGTH_LONG).show()
+                        Log.e("BlobDownload", "Error saving blob file: ${e.message}", e)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * This is called after the user responds to the permission request dialog.
+     */
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == STORAGE_PERMISSION_CODE) {
@@ -167,6 +283,7 @@ class BrowserFragment : Fragment() {
         }
     }
 
+    // Public method to load a URL into this fragment's WebView
     fun loadUrl(url: String) {
         if (::webView.isInitialized) {
             webView.loadUrl(url)
@@ -175,8 +292,58 @@ class BrowserFragment : Fragment() {
         }
     }
 
+    // Public method to get the current URL of the WebView
+    fun getCurrentUrl(): String? {
+        return if (::webView.isInitialized) webView.url else null
+    }
+
+    // Public method to get the WebView instance
     fun getWebView(): WebView? {
         return if (::webView.isInitialized) webView else null
+    }
+
+    // Public method to speak text (can be triggered from MainActivity/menu later)
+    fun speakText(text: String) {
+        if (::textToSpeech.isInitialized && textToSpeech.isSpeaking) {
+            textToSpeech.stop()
+        }
+        if (::textToSpeech.isInitialized && text.isNotBlank()) {
+            val result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            if (result == TextToSpeech.ERROR) {
+                Log.e("TTS", "Error speaking text.")
+                Toast.makeText(requireContext(), "Error speaking text.", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Reading aloud...", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(requireContext(), "TTS not ready or no text to speak.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        webView.onPause() // Pause WebView activity
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.onResume() // Resume WebView activity
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        // It's good practice to destroy the WebView when the fragment's view is destroyed
+        // to prevent memory leaks, especially in a ViewPager scenario.
+        webView.destroy()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Release TextToSpeech resources
+        if (::textToSpeech.isInitialized) {
+            textToSpeech.stop()
+            textToSpeech.shutdown()
+        }
     }
 
     companion object {
