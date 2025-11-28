@@ -1,72 +1,28 @@
-import java.text.SimpleDateFormat
-import java.util.Date
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("kotlin-kapt") // ADD THIS LINE: Enables Kotlin Annotation Processing for Room
-}
-
-base {
-    // Naming APK // AAB
-    val timestamp = SimpleDateFormat("dd-MM-yyyy_hh-mm").format(Date())
-    archivesName = "${ProjectSetting.NAME_APK}-[${ProjectSetting.PROJECT_VERSION_NAME}]-$timestamp"
+    id("kotlin-kapt") // Ensure this is applied
 }
 
 android {
-    compileSdk = ProjectSetting.PROJECT_COMPILE_SDK
-    namespace = ProjectSetting.PROJECT_NAME_SPACE
+    namespace = "id.frogobox.compliervx"
+    compileSdk = 34
 
     defaultConfig {
-
-        applicationId = ProjectSetting.PROJECT_APP_ID
-        minSdk = ProjectSetting.PROJECT_MIN_SDK
-        targetSdk = ProjectSetting.PROJECT_TARGET_SDK
-        versionCode = ProjectSetting.PROJECT_VERSION_CODE
-        versionName = ProjectSetting.PROJECT_VERSION_NAME
-
-        multiDexEnabled = true
-        vectorDrawables.useSupportLibrary = true
+        applicationId = "id.frogobox.compliervx"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-    }
-
-    signingConfigs {
-        create("release") {
-            // You need to specify either an absolute path or include the
-            // keystore file in the same directory as the build.gradle file.
-            // [PROJECT FOLDER NAME/app/[COPY YOUT KEY STORE] .jks in here
-            storeFile = file(ProjectSetting.KEY_PATH)
-            storePassword = ProjectSetting.KEY_STORE_PASSWORD
-            keyAlias = ProjectSetting.KEY_ALIAS
-            keyPassword = ProjectSetting.KEY_ALIAS_PASSWORD
-        }
     }
 
     buildTypes {
-        getByName("release") {
+        release {
             isMinifyEnabled = false
-
-            // Disable Debug Mode
-            isDebuggable = false
-            isJniDebuggable = false
-            isPseudoLocalesEnabled = false
-
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-
-            // Generated Signed APK / AAB
-            signingConfig = signingConfigs.getByName("release")
-
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
-    }
-
-    buildFeatures {
-        viewBinding = true
-        buildConfig = true
     }
 
     compileOptions {
@@ -74,26 +30,37 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        jvmToolchain(17) // Use JVM 17 for Kotlin compilation
     }
 
+    // New compilerOptions DSL for Kotlin
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget.JVM_17)
+        }
+    }
+
+    buildFeatures {
+        dataBinding = true
+        viewBinding = true
+    }
 }
 
 dependencies {
 
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.androidx.constraintlayout)
-    implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.material)
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
-    // Room components (ADD THESE LINES)
-    implementation("androidx.room:room-runtime:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1") // Use 'kapt' for Kotlin annotation processing
-    implementation("androidx.room:room-ktx:2.6.1") // For Kotlin Coroutines support
+    // Kapt libraries if you are using them (e.g., Room, Dagger, Data Binding)
+    // Example for Room:
+    // kapt("androidx.room:room-compiler:2.6.1")
+    // Example for Dagger Hilt:
+    // kapt("com.google.dagger:hilt-compiler:2.51")
 
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }
