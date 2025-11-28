@@ -1,4 +1,4 @@
-package com.frogobox.githubaction
+package com.nastytech.eden2
 
 import android.os.Bundle
 import android.webkit.WebView
