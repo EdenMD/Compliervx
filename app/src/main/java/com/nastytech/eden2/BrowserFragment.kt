@@ -19,57 +19,77 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import com.nastytech.eden2.db.AppDatabase
+import com.nastytech.eden2.db.HistoryItem
+import kotlinx.coroutines.launch
 
 class BrowserFragment : Fragment() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
 
-    // A constant for the storage permission request code, specific to this fragment if needed
-    // For now, assume MainActivity handles initial permission, but Fragment can also request.
     private val STORAGE_PERMISSION_CODE = 1
 
-    // This property will be set by the newInstance factory method
     private var initialUrl: String = "about:blank"
+
+    // Reference to the database DAO
+    private lateinit var historyDao: HistoryDao
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Retrieve the initial URL passed as an argument
         arguments?.let {
             initialUrl = it.getString(ARG_URL) ?: "about:blank"
         }
+        // Initialize DAO here
+        historyDao = AppDatabase.getDatabase(requireContext()).historyDao()
     }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the layout for this fragment (fragment_browser.xml)
         return inflater.inflate(R.layout.fragment_browser, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        // Initialize views from the fragment's layout
         webView = view.findViewById(R.id.webview_fragment)
         progressBar = view.findViewById(R.id.progress_bar_fragment)
 
-        // --- WebView Settings (moved from old MainActivity) ---
+        // --- WebView Settings ---
         webView.webViewClient = object : WebViewClient() {
-            // Optional: You can override onPageStarted, onPageFinished, etc. here
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // TODO: In Phase 2.4, add logic here to save history to Room DB
+                // When a page finishes loading, save it to history
+                if (url != null && view?.title != null && url != "about:blank") {
+                    lifecycleScope.launch {
+                        val existingItem = historyDao.getHistoryItemByUrl(url)
+                        if (existingItem == null) { // Only add if not already in history (or update timestamp)
+                            historyDao.insert(HistoryItem(url = url, title = view.title!!))
+                        } else {
+                            // Update timestamp if the page is visited again
+                            historyDao.insert(existingItem.copy(timestamp = System.currentTimeMillis()))
+                        }
+                    }
+                }
+                // Update the tab title in MainActivity via its adapter if available
+                (activity as? MainActivity)?.let { mainActivity ->
+                    val tabAdapter = mainActivity.viewPager.adapter as? TabAdapter
+                    val currentPosition = mainActivity.viewPager.currentItem
+                    tabAdapter?.notifyItemChanged(currentPosition) // Trigger title update in TabLayoutMediator
+                }
             }
+            // Add other overrides as needed, e.g., shouldOverrideUrlLoading for custom handling
         }
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.loadWithOverviewMode = true
         webView.settings.useWideViewPort = true
         webView.settings.builtInZoomControls = true
-        webView.settings.displayZoomControls = false // Hide zoom buttons
+        webView.settings.displayZoomControls = false
 
-        // --- Progress Bar Handler (moved from old MainActivity) ---
+        // --- Progress Bar Handler ---
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress < 100) {
@@ -81,17 +101,20 @@ class BrowserFragment : Fragment() {
             }
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                // Optionally update the tab title here
-                // (e.g., if Fragment is part of an interface that displays tab titles)
+                // If the title is received, also notify the main activity to update the tab title
+                (activity as? MainActivity)?.let { mainActivity ->
+                    val tabAdapter = mainActivity.viewPager.adapter as? TabAdapter
+                    val currentPosition = mainActivity.viewPager.currentItem
+                    tabAdapter?.notifyItemChanged(currentPosition) // This will cause TabLayoutMediator to re-query the title
+                }
             }
         }
 
-        // --- Download Handler (moved from old MainActivity) ---
+        // --- Download Handler ---
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
                 downloadFile(url, userAgent, contentDisposition, mimetype)
             } else {
-                // Request permission if not granted. Use requestPermissions from Fragment.
                 requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_CODE)
             }
         }
@@ -100,27 +123,20 @@ class BrowserFragment : Fragment() {
         webView.loadUrl(initialUrl)
 
         // --- Handle back press within the Fragment's WebView ---
-        // This ensures back navigation works per-tab
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (webView.canGoBack()) {
                     webView.goBack()
                 } else {
-                    // If the WebView can't go back, the Fragment should ideally
-                    // inform its hosting Activity/ViewPager to close the tab,
-                    // or let the Activity handle the global back press if it's the only tab.
-                    // For now, we'll disable this callback and let the Activity handle it.
-                    // The MainActivity will then manage tab closing if multiple tabs are open.
-                    isEnabled = false
-                    requireActivity().onBackPressedDispatcher.onBackPressed()
+                    // If the WebView can't go back, this tab is "done".
+                    // The MainActivity will handle closing the tab or exiting the app.
+                    isEnabled = false // Disable this fragment's callback
+                    requireActivity().onBackPressedDispatcher.onBackPressed() // Let the Activity's callback handle it
                 }
             }
         })
     }
 
-    /**
-     * Handles the file download process using Android's system DownloadManager.
-     */
     private fun downloadFile(url: String, userAgent: String, contentDisposition: String, mimetype: String) {
         try {
             val request = DownloadManager.Request(Uri.parse(url))
@@ -140,9 +156,6 @@ class BrowserFragment : Fragment() {
         }
     }
 
-    /**
-     * This is called after the user responds to the permission request dialog.
-     */
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == STORAGE_PERMISSION_CODE) {
@@ -154,17 +167,14 @@ class BrowserFragment : Fragment() {
         }
     }
 
-    // Public method to load a URL into this fragment's WebView
     fun loadUrl(url: String) {
         if (::webView.isInitialized) {
             webView.loadUrl(url)
         } else {
-            // If WebView not initialized, store for when it is (e.g., during onCreate)
             initialUrl = url
         }
     }
 
-    // Provide access to the WebView instance
     fun getWebView(): WebView? {
         return if (::webView.isInitialized) webView else null
     }
