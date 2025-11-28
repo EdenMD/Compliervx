@@ -4,32 +4,27 @@
 
     <item
         android:id="@+id/action_new_tab"
-        android:icon="@android:drawable/ic_menu_add"
         android:title="New Tab"
         app:showAsAction="ifRoom" />
 
     <item
         android:id="@+id/action_anesha_chat"
         android:title="Anesha AI Chat"
-        android:icon="@android:drawable/ic_menu_send"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_split_view"
         android:title="Open in Split View"
-        android:icon="@android:drawable/ic_menu_slideshow"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_history"
         android:title="History"
-        android:icon="@android:drawable/ic_menu_recent_history"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_bookmarks"
         android:title="Bookmarks"
-        android:icon="@android:drawable/ic_menu_star"
         app:showAsAction="never" />
 
     <item
@@ -41,13 +36,11 @@
     <item
         android:id="@+id/action_find_in_page"
         android:title="Find in Page"
-        android:icon="@android:drawable/ic_menu_search"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/action_speak_page"
         android:title="Read Page Aloud"
-        android:icon="@android:drawable/ic_btn_speak_now"
         app:showAsAction="never" />
 
 </menu>
