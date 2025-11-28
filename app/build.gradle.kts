@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "id.frogobox.compliervx"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -32,9 +32,8 @@ android {
 
     // New compilerOptions DSL for Kotlin
     kotlin {
-        jvmToolchain(17) // Use JVM 17 for Kotlin compilation
         compilerOptions {
-            jvmTarget.set("17") // Correct way to set JVM target
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) // Corrected to use the enum
         }
     }
 
