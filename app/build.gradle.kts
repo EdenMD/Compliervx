@@ -1,28 +1,63 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("kotlin-kapt") // Ensure this is applied
+    id("kotlin-kapt")
+}
+
+base {
+    // Naming APK // AAB
+    val timestamp = SimpleDateFormat("dd-MM-yyyy_hh-mm").format(Date())
+    archivesName = "${ProjectSetting.NAME_APK}-[${ProjectSetting.PROJECT_VERSION_NAME}]-$timestamp"
 }
 
 android {
-    namespace = "id.frogobox.compliervx"
-    compileSdk = 34
+    compileSdk = ProjectSetting.PROJECT_COMPILE_SDK
+    namespace = ProjectSetting.PROJECT_NAME_SPACE
 
     defaultConfig {
-        applicationId = "id.frogobox.compliervx"
-        minSdk = 24
-        targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
-
+        applicationId = ProjectSetting.PROJECT_APP_ID
+        minSdk = ProjectSetting.PROJECT_MIN_SDK
+        targetSdk = ProjectSetting.PROJECT_TARGET_SDK
+        versionCode = ProjectSetting.PROJECT_VERSION_CODE
+        versionName = ProjectSetting.PROJECT_VERSION_NAME
+        multiDexEnabled = true
+        vectorDrawables.useSupportLibrary = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    signingConfigs {
+        create("release") {
+            // You need to specify either an absolute path or include the
+            // keystore file in the same directory as the build.gradle file.
+            // [PROJECT FOLDER NAME/app/[COPY YOUT KEY STORE] .jks in here
+            storeFile = file(ProjectSetting.KEY_PATH)
+            storePassword = ProjectSetting.KEY_STORE_PASSWORD
+            keyAlias = ProjectSetting.KEY_ALIAS
+            keyPassword = ProjectSetting.KEY_ALIAS_PASSWORD
         }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false // Disable Debug Mode
+            isDebuggable = false
+            isJniDebuggable = false
+            isPseudoLocalesEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // Generated Signed APK / AAB
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    buildFeatures {
+        viewBinding = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -30,33 +65,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // New compilerOptions DSL for Kotlin
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) // Corrected to use the enum
-        }
-    }
-
-    buildFeatures {
-        dataBinding = true
-        viewBinding = true
+    kotlinOptions {
+        jvmTarget = "17"
     }
 }
 
 dependencies {
-
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-
-    // Kapt libraries if you are using them (e.g., Room, Dagger, Data Binding)
-    // Example for Room:
-    // kapt("androidx.room:room-compiler:2.6.1")
-    // Example for Dagger Hilt:
-    // kapt("com.google.dagger:hilt-compiler:2.51")
-
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.material)
+    implementation(libs.androidx.room.runtime)
+    kapt(libs.androidx.room.compiler)
+    implementation(libs.androidx.room.ktx)
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }
