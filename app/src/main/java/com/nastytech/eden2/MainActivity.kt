@@ -1,128 +1,81 @@
 package com.nastytech.eden2
 
-import android.Manifest
-import android.app.DownloadManager
-import android.content.Context
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
-import android.view.View
-import android.webkit.URLUtil
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.ProgressBar
-import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.viewpager2.widget.ViewPager2
+import com.google.android.material.tabs.TabLayout
+import com.google.android.material.tabs.TabLayoutMediator
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var webView: WebView
-    private lateinit var progressBar: ProgressBar
-
-    // A constant for the storage permission request code
-    private val STORAGE_PERMISSION_CODE = 1
+    private lateinit var tabLayout: TabLayout
+    private lateinit var viewPager: ViewPager2
+    private lateinit var tabAdapter: TabAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        setContentView(R.layout.activity_main) // Use the new tab-managing layout
 
-        // Initialize the views from the layout
-        webView = findViewById(R.id.webview)
-        progressBar = findViewById(R.id.progress_bar)
+        tabLayout = findViewById(R.id.tab_layout)
+        viewPager = findViewById(R.id.view_pager)
 
-        // --- WebView Settings ---
-        webView.webViewClient = WebViewClient() // Ensures links open within the WebView
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
+        tabAdapter = TabAdapter(this) // Initialize our custom TabAdapter
+        viewPager.adapter = tabAdapter
 
-        // --- Progress Bar Handler ---
-        // This client handles events related to the browser UI, like progress updates.
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                if (newProgress < 100) {
-                    progressBar.visibility = View.VISIBLE
-                    progressBar.progress = newProgress
-                } else {
-                    progressBar.visibility = View.GONE
-                }
+        // Link the TabLayout and ViewPager2
+        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+            tab.text = tabAdapter.getTabTitle(position) // Set initial tab titles
+        }.attach()
+
+        // Listener for tab selection changes to update titles or other UI
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                // Not much needed here initially, but useful for future features
             }
-        }
 
-        // --- Download Handler ---
-        // This listener is triggered whenever the WebView needs to download a file.
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
-            // Check if we already have permission to write to storage
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-                downloadFile(url, userAgent, contentDisposition, mimetype)
-            } else {
-                // If not, request the permission from the user
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), STORAGE_PERMISSION_CODE)
+            override fun onTabUnselected(tab: TabLayout.Tab?) {
+                // Not much needed here initially
             }
-        }
 
-        // --- Back Press Handler ---
-        // This is the modern way to handle the back button.
-        // It checks if the WebView can go back before closing the app.
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    // If the WebView can't go back, disable this callback and
-                    // let the system handle the back press (which usually closes the activity).
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                }
+            override fun onTabReselected(tab: TabLayout.Tab?) {
+                // Can be used to refresh the tab or scroll to top
             }
         })
 
-        // --- Load Initial URL ---
-        webView.loadUrl("https://github.com/amirisback") // You can change this to any start page
+        // TODO: In Phase 4.1, we'll integrate menu for "New Tab", "Split View", etc.
+        // For now, the TabAdapter starts with one blank tab.
+        // You can add more tabs here if needed for initial testing, e.g.:
+        // addTab("https://www.google.com")
     }
 
-    /**
-     * Handles the file download process using Android's system DownloadManager.
-     */
-    private fun downloadFile(url: String, userAgent: String, contentDisposition: String, mimetype: String) {
-        try {
-            val request = DownloadManager.Request(Uri.parse(url))
-            request.setMimeType(mimetype)
-            request.addRequestHeader("User-Agent", userAgent)
-            request.setDescription("Downloading file...")
-            request.setTitle(URLUtil.guessFileName(url, contentDisposition, mimetype))
-            // Show a notification while downloading and when complete.
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            // Save the file to the public "Downloads" folder.
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimetype))
+    // Method to add a new tab to the browser
+    fun addTab(url: String) {
+        tabAdapter.addFragment(BrowserFragment.newInstance(url))
+        viewPager.setCurrentItem(tabAdapter.itemCount - 1, true) // Switch to the new tab
+        tabLayout.getTabAt(tabAdapter.itemCount - 1)?.text = "Loading..." // Initial tab title
+        // The BrowserFragment's WebChromeClient will update the title later
+    }
 
-            val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            downloadManager.enqueue(request) // Start the download
-
-            Toast.makeText(applicationContext, "Downloading File...", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            // Show an error message if something goes wrong
-            Toast.makeText(applicationContext, "Error downloading file: ${e.message}", Toast.LENGTH_LONG).show()
+    // Method to remove a tab
+    fun removeCurrentTab() {
+        if (tabAdapter.itemCount > 1) { // Only remove if more than one tab exists
+            val currentPosition = viewPager.currentItem
+            tabAdapter.removeFragment(currentPosition)
+            // TabLayoutMediator handles tab removal automatically if linked properly
+        } else {
+            // If only one tab left, closing it should exit the app (or go to homepage)
+            finish()
         }
     }
 
-    /**
-     * This is called after the user responds to the permission request dialog.
-     */
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == STORAGE_PERMISSION_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // Permission was granted. Inform the user to try again.
-                Toast.makeText(this, "Permission granted. Please try the download again.", Toast.LENGTH_LONG).show()
-            } else {
-                // Permission was denied.
-                Toast.makeText(this, "Permission denied. Cannot download file.", Toast.LENGTH_LONG).show()
-            }
+    override fun onBackPressed() {
+        val currentFragment = tabAdapter.getFragment(viewPager.currentItem)
+        if (currentFragment != null && currentFragment.getWebView()?.canGoBack() == true) {
+            currentFragment.getWebView()?.goBack()
+        } else if (tabAdapter.itemCount > 1) {
+            removeCurrentTab() // Close the current tab
+        } else {
+            super.onBackPressed() // Exit the app
         }
     }
 }

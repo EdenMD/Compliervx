@@ -4,6 +4,7 @@ import java.util.Date
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("kotlin-kapt")
 }
 
 base {
@@ -17,18 +18,14 @@ android {
     namespace = ProjectSetting.PROJECT_NAME_SPACE
 
     defaultConfig {
-
         applicationId = ProjectSetting.PROJECT_APP_ID
         minSdk = ProjectSetting.PROJECT_MIN_SDK
         targetSdk = ProjectSetting.PROJECT_TARGET_SDK
         versionCode = ProjectSetting.PROJECT_VERSION_CODE
         versionName = ProjectSetting.PROJECT_VERSION_NAME
-
         multiDexEnabled = true
         vectorDrawables.useSupportLibrary = true
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
     }
 
     signingConfigs {
@@ -45,21 +42,16 @@ android {
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
-
-            // Disable Debug Mode
+            isMinifyEnabled = false // Disable Debug Mode
             isDebuggable = false
             isJniDebuggable = false
             isPseudoLocalesEnabled = false
-
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-
             // Generated Signed APK / AAB
             signingConfig = signingConfigs.getByName("release")
-
         }
     }
 
@@ -76,17 +68,17 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.material)
-
+    implementation(libs.androidx.room.runtime)
+    kapt(libs.androidx.room.compiler)
+    implementation(libs.androidx.room.ktx)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
