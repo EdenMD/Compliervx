@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
+import com.nastytech.eden2.db.HistoryItem
 
 @Dao
 interface HistoryDao {
