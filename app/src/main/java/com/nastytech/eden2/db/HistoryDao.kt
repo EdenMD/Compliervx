@@ -10,16 +10,16 @@ import com.nastytech.eden2.db.HistoryItem
 @Dao
 interface HistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(historyItem: HistoryItem)
+    suspend fun insert(historyItem: HistoryItem): Unit // Explicitly declare Unit return type
 
     @Query("SELECT * FROM history_table ORDER BY timestamp DESC")
     fun getAllHistory(): Flow<List<HistoryItem>>
 
     @Query("DELETE FROM history_table WHERE id = :itemId")
-    suspend fun deleteById(itemId: Int)
+    suspend fun deleteById(itemId: Int): Unit // Explicitly declare Unit return type
 
     @Query("DELETE FROM history_table")
-    suspend fun deleteAll()
+    suspend fun deleteAll(): Unit // Explicitly declare Unit return type
 
     @Query("SELECT * FROM history_table WHERE url = :url LIMIT 1")
     suspend fun getHistoryItemByUrl(url: String): HistoryItem?
